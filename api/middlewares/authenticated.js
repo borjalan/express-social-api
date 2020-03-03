@@ -15,7 +15,6 @@ exports.ensureAuth = function(req, res, next) {
 
   try {
     const payload = jwt.decode(token, env.secretSauce);
-
     if (payload.exp <= moment().unix()) {
       logger.print_call_error("mdAuth", { message: "Token expirado" });
       return res.status(401).send({ message: "El token ha expirado" });

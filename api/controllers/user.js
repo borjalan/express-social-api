@@ -147,9 +147,15 @@ function getUsers(req, res) {
   const itemsPerPage = 5;
 
   User.paginate({}, { page: page, limit: itemsPerPage }, (err, users, total) => {
-    if (err) return res.status(500).send({ message: "Error en la petición" });
+    if (err) {
+      logger.print_call_result("getUsers", { message: "Error en bd" });
+      return res.status(500).send({ message: "Error en la petición" });
+    }
 
-    if (!users) return res.status(200).send({ message: "No hay usuarios disponibles" });
+    if (!users) {
+      logger.print_call_error("getUsers", { message: "Sin usuarios" });
+      return res.status(200).send({ message: "No hay usuarios disponibles" });
+    }
 
     logger.print_call_result("getUsers", users);
     return res.status(200).send({
@@ -159,9 +165,54 @@ function getUsers(req, res) {
   });
 }
 
+function editUser(req, res) {
+  logger.print_call("editUser", req.body);
+  const userId = req.params.id;
+  const userEmail = req.user.email;
+  const userNick = req.user.nick;
+  let update = req.body;
+  delete update.password;
+
+  if (userId != req.user.sub) {
+    logger.print_call_error("editUser", { update });
+    return res.status(403).send({ message: "No puedes editar ese usuario" });
+  }
+
+  User.find({ $or: [{ nick: update.nick }, { email: update.email }] }).exec((err, users) => {
+    if (err) {
+      logger.print_call_error("editUser", { message: "Error en la bd" });
+      return res.status(500).send({ message: "Error en la petición" });
+    } else {
+      users.forEach(user => {
+        if (user._id != userId) {
+          if (user.nick == update.nick) {
+            logger.print_call_error("editUser", { message: "No puedes usar ese nick", update });
+            return res.status(401).send({ message: "No puedes usar ese nick" });
+          } else if (user.email == update.email) {
+            logger.print_call_error("editUser", { message: "No puedes usar ese email", update });
+            return res.status(401).send({ message: "No puedes usar ese email" });
+          }
+        }
+      });
+    }
+  });
+  User.findByIdAndUpdate(userId, update, { new: true }).exec((err, userUpdated) => {
+    if (err) {
+      logger.print_call_error("editUser", { message: "Error en la bd" });
+      return res.status(500).send({ message: "Error en la petición" });
+    } else if (!userUpdated) {
+      logger.print_call_error("editUser", { message: "No se ha podido actualizar el usuario" });
+      return res.status(404).send({ message: "No se ha podido actualizar el usuario" });
+    } else {
+      return res.status(200).send({ user: userUpdated });
+    }
+  });
+}
+
 module.exports = {
   createUser,
   loginUser,
   getUser,
-  getUsers
+  getUsers,
+  editUser
 };
