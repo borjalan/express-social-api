@@ -140,8 +140,28 @@ function getUser(req, res) {
   });
 }
 
+function getUsers(req, res) {
+  logger.print_call("getUsers", req.body);
+  const actualUserId = req.user.userId;
+  const page = req.params.page || 1;
+  const itemsPerPage = 5;
+
+  User.paginate({}, { page: page, limit: itemsPerPage }, (err, users, total) => {
+    if (err) return res.status(500).send({ message: "Error en la petición" });
+
+    if (!users) return res.status(200).send({ message: "No hay usuarios disponibles" });
+
+    logger.print_call_result("getUsers", users);
+    return res.status(200).send({
+      users,
+      total
+    });
+  });
+}
+
 module.exports = {
   createUser,
   loginUser,
-  getUser
+  getUser,
+  getUsers
 };
