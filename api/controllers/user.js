@@ -10,11 +10,8 @@ const createUserSchema = Joi.object().keys({
   email: Joi.string()
     .email()
     .required(),
-  name: Joi.string()
-    .regex(/^[a-zA-Z]{3,30}$/)
-    .required(),
-  surname: Joi.string()
-    .regex(/^[a-zA-Z]{3,30}$/)
+  description: Joi.string()
+    .regex(/^[a-zA-Z0-9]{0,500}$/)
     .optional(),
   nick: Joi.string()
     .regex(/^[a-zA-Z0-9]{3,30}$/)
@@ -167,45 +164,33 @@ function getUsers(req, res) {
 
 function editUser(req, res) {
   logger.print_call("editUser", req.body);
+
   const userId = req.params.id;
-  const userEmail = req.user.email;
-  const userNick = req.user.nick;
   let update = req.body;
+
+  // borrar propiedad password
   delete update.password;
 
   if (userId != req.user.sub) {
-    logger.print_call_error("editUser", { update });
-    return res.status(403).send({ message: "No puedes editar ese usuario" });
+    return res.status(500).send({ message: "No tienes permiso para actualizar los datos del usuario" });
   }
 
-  User.find({ $or: [{ nick: update.nick }, { email: update.email }] }).exec((err, users) => {
-    if (err) {
-      logger.print_call_error("editUser", { message: "Error en la bd" });
-      return res.status(500).send({ message: "Error en la petición" });
-    } else {
-      users.forEach(user => {
-        if (user._id != userId) {
-          if (user.nick == update.nick) {
-            logger.print_call_error("editUser", { message: "No puedes usar ese nick", update });
-            return res.status(401).send({ message: "No puedes usar ese nick" });
-          } else if (user.email == update.email) {
-            logger.print_call_error("editUser", { message: "No puedes usar ese email", update });
-            return res.status(401).send({ message: "No puedes usar ese email" });
-          }
-        }
-      });
-    }
-  });
-  User.findByIdAndUpdate(userId, update, { new: true }).exec((err, userUpdated) => {
-    if (err) {
-      logger.print_call_error("editUser", { message: "Error en la bd" });
-      return res.status(500).send({ message: "Error en la petición" });
-    } else if (!userUpdated) {
-      logger.print_call_error("editUser", { message: "No se ha podido actualizar el usuario" });
-      return res.status(404).send({ message: "No se ha podido actualizar el usuario" });
-    } else {
+  User.find({ $or: [{ email: update.email.toLowerCase() }, { nick: update.nick }] }).exec((err, users) => {
+    if (err) return res.status(500).send({ message: "Error en la petición" });
+    let user_isset = false;
+    users.forEach(user => {
+      if (user && user._id != userId) user_isset = true;
+    });
+
+    if (user_isset) return res.status(404).send({ message: "Los datos ya están en uso" });
+
+    User.findByIdAndUpdate(userId, update, { new: true }, (err, userUpdated) => {
+      if (err) return res.status(500).send({ message: "Error en la petición" });
+
+      if (!userUpdated) return res.status(404).send({ message: "No se ha podido actualizar el usuario" });
+
       return res.status(200).send({ user: userUpdated });
-    }
+    });
   });
 }
 
