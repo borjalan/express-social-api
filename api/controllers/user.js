@@ -2,6 +2,9 @@
 
 const Joi = require("joi");
 const bcrypt = require("bcrypt");
+const fs = require("fs");
+const path = require("path");
+
 const User = require("../models/user");
 const jwt = require("../services/jwt");
 const logger = require("./logger");
@@ -10,11 +13,8 @@ const createUserSchema = Joi.object().keys({
   email: Joi.string()
     .email()
     .required(),
-  name: Joi.string()
-    .regex(/^[a-zA-Z]{3,30}$/)
-    .required(),
-  surname: Joi.string()
-    .regex(/^[a-zA-Z]{3,30}$/)
+  description: Joi.string()
+    .regex(/^[a-zA-Z0-9]{0,500}$/)
     .optional(),
   nick: Joi.string()
     .regex(/^[a-zA-Z0-9]{3,30}$/)
@@ -147,9 +147,15 @@ function getUsers(req, res) {
   const itemsPerPage = 5;
 
   User.paginate({}, { page: page, limit: itemsPerPage }, (err, users, total) => {
-    if (err) return res.status(500).send({ message: "Error en la petición" });
+    if (err) {
+      logger.print_call_result("getUsers", { message: "Error en bd" });
+      return res.status(500).send({ message: "Error en la petición" });
+    }
 
-    if (!users) return res.status(200).send({ message: "No hay usuarios disponibles" });
+    if (!users) {
+      logger.print_call_error("getUsers", { message: "Sin usuarios" });
+      return res.status(200).send({ message: "No hay usuarios disponibles" });
+    }
 
     logger.print_call_result("getUsers", users);
     return res.status(200).send({
@@ -159,9 +165,96 @@ function getUsers(req, res) {
   });
 }
 
+function editUser(req, res) {
+  logger.print_call("editUser", req.body);
+
+  const userId = req.params.id;
+  let update = req.body;
+  delete update.password;
+
+  if (userId != req.user.sub) {
+    return res.status(500).send({ message: "No tienes permiso para actualizar los datos del usuario" });
+  }
+
+  User.find({ $or: [{ email: update.email.toLowerCase() }, { nick: update.nick }] }).exec((err, users) => {
+    if (err) {
+      logger.print_call_error("editUser", { message: "Error en la bd" });
+      return res.status(500).send({ message: "Error en la petición" });
+    }
+    let user_isset = false;
+    users.forEach(user => {
+      if (user && user._id != userId) user_isset = true;
+    });
+
+    if (user_isset) return res.status(404).send({ message: "Los datos ya están en uso" });
+
+    User.findByIdAndUpdate(userId, update, { new: true }, (err, userUpdated) => {
+      if (err) {
+        logger.print_call_error("editUser", { message: "Error en la bd" });
+        return res.status(500).send({ message: "Error en la petición" });
+      }
+
+      if (!userUpdated) {
+        logger.print_call_error("editUser", { message: "No se ha podido actualizar el usuario" });
+        return res.status(404).send({ message: "No se ha podido actualizar el usuario" });
+      }
+
+      logger.print_call_result("editUser", { message: "Exito", user: userUpdated });
+      return res.status(200).send({ user: userUpdated });
+    });
+  });
+}
+
+function setAvatar(req, res) {
+  logger.print_call("setAvatar", req.body);
+  const userId = req.params.id;
+  const userAvatar = req.user.image;
+  console.log(req.user);
+
+  if (userId != req.user.sub) {
+    logger.print_call_error("setAvatar", { message: "No tienes permiso" });
+    return res.status(500).send({ message: "No tienes permiso" });
+  }
+
+  if (req.file) {
+    const file_path = req.file.path;
+    const file_split = file_path.split("/");
+    const file_name = file_split[2];
+    const ext_split = req.file.originalname.split(".");
+    const file_ext = ext_split[1];
+    if (file_ext == "png" || file_ext == "jpg" || file_ext == jpeg || file_ext == gif) {
+      User.findByIdAndUpdate(userId, { image: file_name }, (err, userUpdated) => {
+        if (err) {
+          logger.print_call_error("setAvatar", { message: "Error en la bd" });
+          return res.status(500).send({ message: "Error en la petición" });
+        }
+
+        if (!userUpdated) {
+          logger.print_call_error("setAvatar", { message: "No se ha podido actualizar el usuario" });
+          return res.status(404).send({ message: "No se ha podido actualizar el usuario" });
+        }
+
+        fs.unlink("./uploads/users/" + userUpdated.image, () => {});
+      });
+      logger.print_call_result("setAvatar", { message: "Éxito", avatar: req.file });
+      return res.status(200).send({ message: "Éxito" });
+    } else {
+      fs.unlink(file_path, err => {
+        logger.print_call_error("setAvatar", { message: "Extensión no válida" });
+        return res.status(200).send({ message: "Extensión no válida" });
+      });
+    }
+  } else {
+    logger.print_call_error("setAvatar", { message: "No se enviaron imágenes" });
+    return res.status(200).send({ message: "No se enviaron imágenes" });
+  }
+}
+
 module.exports = {
   createUser,
   loginUser,
   getUser,
-  getUsers
+  getUsers,
+  editUser,
+  setAvatar
 };
